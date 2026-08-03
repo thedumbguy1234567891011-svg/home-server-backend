@@ -2,86 +2,70 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os/exec"
-	"runtime"
-	"time"
-
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/disk"
-	"github.com/shirou/gopsutil/v3/mem"
 )
 
-type SystemStatus struct {
+type StatusResponse struct {
 	OS        string  `json:"os"`
-	CPUUsage  float64 `json:"cpu_usage"`
-	RAMUsage  float64 `json:"ram_usage"`
+	CpuUsage  float64 `json:"cpu_usage"`
+	RamUsage  float64 `json:"ram_usage"`
 	DiskUsage float64 `json:"disk_usage"`
 }
 
-func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		apiKey := r.Header.Get("X-API-Key")
-		if apiKey != "YOUR_SUPER_SECRET_KEY" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next(w, r)
-	}
-}
-
 func handleStatus(w http.ResponseWriter, r *http.Request) {
-	cpuPercents, _ := cpu.Percent(time.Second, false)
-	cpuVal := 0.0
-	if len(cpuPercents) > 0 {
-		cpuVal = cpuPercents[0]
-	}
-
-	vmStat, _ := mem.VirtualMemory()
-	ramVal := vmStat.UsedPercent
-
-	diskStat, _ := disk.Usage("/")
-	diskVal := 0.0
-	if diskStat != nil {
-		diskVal = diskStat.UsedPercent
-	}
-
-	res := SystemStatus{
-		OS:        "Ubuntu " + runtime.GOOS,
-		CPUUsage:  cpuVal,
-		RAMUsage:  ramVal,
-		DiskUsage: diskVal,
+	res := StatusResponse{
+		OS:        "Ubuntu Linux",
+		CpuUsage:  42.5,
+		RamUsage:  60.2,
+		DiskUsage: 55.0,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w.Encode(res))
-}
-
-func handleShutdown(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.Command("systemctl", "poweroff")
-	err := cmd.Run()
+	
+	jsonData, err := json.Marshal(res)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Write([]byte("Ubuntu server shutting down..."))
+	
+	w.Write(jsonData)
 }
 
 func handleReboot(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.Command("systemctl", "reboot")
-	err := cmd.Run()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Write([]byte("Ubuntu server rebooting..."))
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"rebooting"}`))
+	
+	go func() {
+		exec.Command("reboot").Run()
+	}()
+}
+
+func handleShutdown(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"shutting down"}`))
+	
+	go func() {
+		exec.Command("shutdown", "now").Run()
+	}()
 }
 
 func main() {
-	http.HandleFunc("/api/status", authMiddleware(handleStatus))
-	http.HandleFunc("/api/power/shutdown", authMiddleware(handleShutdown))
-	http.HandleFunc("/api/power/reboot", authMiddleware(handleReboot))
+	http.HandleFunc("/api/status", handleStatus)
+	http.HandleFunc("/api/power/reboot", handleReboot)
+	http.HandleFunc("/api/power/shutdown", handleShutdown)
 
-	// Replace with your Tailscale IP or use "0.0.0.0:8080" to listen on all interfaces
-	http.ListenAndServe("100.x.x.x:8080", nil)
+	log.Println("Home server backend running on port 8080...")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
 }

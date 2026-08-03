@@ -1,0 +1,4 @@
+homeserver
+*.exe
+config.json
+.env

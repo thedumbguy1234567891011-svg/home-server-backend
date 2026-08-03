@@ -67,9 +67,7 @@ func getRamUsage() float64 {
 	return (used / total) * 100.0
 }
 
-// Live streaming SSE endpoint
 func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
-	// Set headers required for Server-Sent Events
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -81,6 +79,28 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		default:
+			res := StatusResponse{
+				OS:        "Ubuntu Linux",
+				CpuUsage:  getCpuUsage(),
+				RamUsage:  getRamUsage(),
+				DiskUsage: getDiskUsage(),
+			}
+
+			jsonData, err := json.Marshal(res)
+			if err == nil {
+				fmt.Fprintf(w, "data: %s\n\n", string(jsonData))
+				flusher.Flush()
+			}
+
+			time.Sleep(1 * time.Second)
+		}
+	}
+}
 	// Loop and push stats every 1 second
 	for {
 		select {

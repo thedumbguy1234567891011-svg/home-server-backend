@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
-	"strconv"
+	"time"
 )
 
 type StatusResponse struct {
@@ -17,13 +19,11 @@ type StatusResponse struct {
 	DiskUsage float64 `json:"disk_usage"`
 }
 
-// Simple helper to get real disk usage for the root directory "/"
 func getDiskUsage() float64 {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs("/", &stat); err != nil {
 		return 0.0
 	}
-	// Total space - free space = used space
 	total := float64(stat.Blocks * uint64(stat.Bsize))
 	free := float64(stat.Bfree * uint64(stat.Bsize))
 	if total == 0 {
@@ -33,9 +33,7 @@ func getDiskUsage() float64 {
 	return (used / total) * 100.0
 }
 
-// Simple helper to grab approximate CPU usage on Linux
 func getCpuUsage() float64 {
-	// Reads load average or top info; fallback to a safe parse
 	out, err := exec.Command("sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'").Output()
 	if err != nil {
 		return 0.0
@@ -48,7 +46,6 @@ func getCpuUsage() float64 {
 	return cpu
 }
 
-// Simple helper to get RAM usage percentage
 func getRamUsage() float64 {
 	out, err := exec.Command("free").Output()
 	if err != nil {
@@ -70,23 +67,42 @@ func getRamUsage() float64 {
 	return (used / total) * 100.0
 }
 
-func handleStatus(w http.ResponseWriter, r *http.Request) {
-	res := StatusResponse{
-		OS:        "Ubuntu Linux",
-		CpuUsage:  getCpuUsage(),
-		RamUsage:  getRamUsage(),
-		DiskUsage: getDiskUsage(),
-	}
+// Live streaming SSE endpoint
+func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
+	// Set headers required for Server-Sent Events
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	w.Header().Set("Content-Type", "application/json")
-	
-	jsonData, err := json.Marshal(res)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
 		return
 	}
-	
-	w.Write(jsonData)
+
+	// Loop and push stats every 1 second
+	for {
+		select {
+		case <-r.Context().Done():
+			return // Client disconnected
+		default:
+			res := StatusResponse{
+				OS:        "Ubuntu Linux",
+				CpuUsage:  getCpuUsage(),
+				RamUsage:  getRamUsage(),
+				DiskUsage: getDiskUsage(),
+			}
+
+			jsonData, err := json.Marshal(res)
+			if err == nil {
+				fmt.Fprintf(w, "data: %s\n\n", string(jsonData))
+				flusher.Flush()
+			}
+
+			time.Sleep(1 * time.Second)
+		}
+	}
 }
 
 func handleReboot(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +132,7 @@ func handleShutdown(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/api/status", handleStatus)
+	http.HandleFunc("/api/status/live", handleLiveStatus)
 	http.HandleFunc("/api/power/reboot", handleReboot)
 	http.HandleFunc("/api/power/shutdown", handleShutdown)
 

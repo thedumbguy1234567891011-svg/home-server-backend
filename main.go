@@ -31,10 +31,12 @@ func getOSName() string {
 		if strings.HasPrefix(line, "PRETTY_NAME=") {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
+				// Strips quotes around "Ubuntu 24.04.4 LTS"
 				return strings.Trim(parts[1], `"`)
 			}
 		}
 	}
+
 	return "Linux"
 }
 func getDiskUsage() float64 {

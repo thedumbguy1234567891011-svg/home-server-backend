@@ -23,7 +23,7 @@ type StatusResponse struct {
 func getOSName() string {
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
-		return "Linux"
+		return "Ubuntu 24.04.4 LTS"
 	}
 
 	lines := strings.Split(string(data), "\n")
@@ -31,17 +31,12 @@ func getOSName() string {
 		if strings.HasPrefix(line, "PRETTY_NAME=") {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
-				val := strings.Trim(parts[1], `"`)
-				if val == "Ubuntu Linux" {
-					return "Ubuntu 24.04.4 LTS"
-				}
-				return val
+				return strings.Trim(parts[1], `"`)
 			}
 		}
 	}
 	return "Ubuntu 24.04.4 LTS"
 }
-
 func getDiskUsage() float64 {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs("/", &stat); err != nil {

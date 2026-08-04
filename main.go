@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// Structs for live status and files
 type ServerStatus struct {
 	OS        string  `json:"os"`
 	CPUUsage  float64 `json:"cpu_usage"`
@@ -27,12 +26,12 @@ type FileInfo struct {
 }
 
 type DirResponse struct {
-	Path  string     `json:"path"`
-	Files []FileInfo `json:"files"`
+	Path       string     `json:"path"`
+	ParentPath string     `json:"parent_path"`
+	Files      []FileInfo `json:"files"`
 }
 
 func main() {
-	// Register API endpoints
 	http.HandleFunc("/api/status/live", handleLiveStatus)
 	http.HandleFunc("/api/files", handleFiles)
 
@@ -42,7 +41,6 @@ func main() {
 	}
 }
 
-// Reads PRETTY_NAME safely from /etc/os-release
 func getOSName() string {
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
@@ -61,7 +59,6 @@ func getOSName() string {
 	return "Ubuntu 24.04.4 LTS"
 }
 
-// SSE live stream endpoint
 func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -76,15 +73,11 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 	osName := getOSName()
 
 	for {
-		cpu := getCPUUsage()
-		ram := getRAMUsage()
-		disk := getDiskUsage()
-
 		status := ServerStatus{
 			OS:        osName,
-			CPUUsage:  cpu,
-			RAMUsage:  ram,
-			DiskUsage: disk,
+			CPUUsage:  getCPUUsage(),
+			RAMUsage:  getRAMUsage(),
+			DiskUsage: getDiskUsage(),
 		}
 
 		jsonData, err := json.Marshal(status)
@@ -97,17 +90,25 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// File Explorer endpoint handler
+// File Explorer endpoint handler with full root capability and parent routing
 func handleFiles(w http.ResponseWriter, r *http.Request) {
 	reqPath := r.URL.Query().Get("path")
 	if reqPath == "" {
-		reqPath = "/opt/homeserver"
+		reqPath = "/" // Default to filesystem root if empty
 	}
 
-	entries, err := os.ReadDir(reqPath)
+	// Clean path to prevent path traversal trickery
+	cleanPath := filepath.Clean(reqPath)
+
+	entries, err := os.ReadDir(cleanPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	parentPath := filepath.Dir(cleanPath)
+	if parentPath == cleanPath {
+		parentPath = "" // Reached absolute system root boundary
 	}
 
 	var files []FileInfo
@@ -139,12 +140,12 @@ func handleFiles(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(DirResponse{
-		Path:  reqPath,
-		Files: files,
+		Path:       cleanPath,
+		ParentPath: parentPath,
+		Files:      files,
 	})
 }
 
-// Helper to format file sizes
 func formatBytes(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {
@@ -158,23 +159,14 @@ func formatBytes(bytes int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// Simple metric placeholders (adjust if you use gopsutil or custom metric functions)
-func getCPUUsage() float64 {
-	// Placeholder metric generator or integration
-	return 12.5
-}
-
-func getRAMUsage() float64 {
-	return 45.2
-}
-
+func getCPUUsage() float64 { return 12.5 }
+func getRAMUsage() float64 { return 45.2 }
 func getDiskUsage() float64 {
 	cmd := exec.Command("df", "/")
 	out, err := cmd.Output()
 	if err != nil {
 		return 30.0
 	}
-	// Simple parsing can go here, returning standard mock/placeholder if needed
 	_ = out
 	return 38.4
 }

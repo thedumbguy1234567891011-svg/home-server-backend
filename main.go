@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -156,7 +155,6 @@ func handleFiles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// 1. Create Folder
 func handleCreateDir(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -176,7 +174,6 @@ func handleCreateDir(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"success"}`))
 }
 
-// 2. Delete File or Folder
 func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -192,7 +189,6 @@ func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"deleted"}`))
 }
 
-// 3. Read or Modify File Content
 func handleFileContent(w http.ResponseWriter, r *http.Request) {
 	filePath := r.URL.Query().Get("path")
 	if filePath == "" {
@@ -224,7 +220,6 @@ func handleFileContent(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// 4. Upload File
 func handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -255,7 +250,6 @@ func handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"uploaded"}`))
 }
 
-// 5. Server-to-Server File Transfer Engine
 func handleServerTransfer(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -268,7 +262,6 @@ func handleServerTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step A: Open source file locally
 	srcFile, err := os.Open(req.SourcePath)
 	if err != nil {
 		http.Error(w, "Failed to open source file: "+err.Error(), http.StatusInternalServerError)
@@ -276,33 +269,7 @@ func handleServerTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	defer srcFile.Close()
 
-	// Step B: Prepare a pipe or multipart form request to stream it directly to the target server IP
-	pr, pw := io.Pipe()
-	defer pw.Close()
-
-	// For simplicity in streaming via HTTP POST
-	go func() {
-		defer pw.Close()
-		// We could implement direct streaming, or use standard multipart stream
-	}();
-
-	// Let's stream it using standard http post to target server endpoint /api/files/upload?path=destination_dir
 	targetURL := fmt.Sprintf("http://%s/api/files/upload?path=%s", req.TargetServerIP, req.DestinationDir)
-	
-	// Create body reader using pipe
-	pipeReader, pipeWriter := io.Pipe()
-	writer := io.MultiWriter(pipeWriter)
-	
-	// We can use standard http client upload stream:
-	// A robust way: Read file content and stream it over HTTP request
-	reqBody, bodyWriter := io.Pipe()
-	
-	// We use multipart form writer to send the file smoothly
-	// Or even simpler: Custom POST request piping the file directly
-	_ = writer
-	_ = pipeReader
-
-	// Let's execute the direct push transfer:
 	resp, err := http.Post(targetURL, "application/octet-stream", srcFile)
 	if err != nil || resp.StatusCode != 200 {
 		http.Error(w, "Transfer failed reaching target server", http.StatusInternalServerError)

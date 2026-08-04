@@ -18,7 +18,7 @@ You can install, configure, and run the backend daemon on your Linux server with
 Run the following command on your server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/thedumbguy1234567891011-svg/home-server-backend/main/install.sh | sudo bash
+curl -fsSL [https://raw.githubusercontent.com/thedumbguy1234567891011-svg/home-server-backend/main/install.sh](https://gist.github.com/thedumbguy1234567891011-svg/dfcaa5cd5aa150bfa32d50be3fdfff8f) | sudo bash
 ```
 
 ---

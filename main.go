@@ -31,12 +31,17 @@ func getOSName() string {
 		if strings.HasPrefix(line, "PRETTY_NAME=") {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
-				return strings.Trim(parts[1], `"`)
+				val := strings.Trim(parts[1], `"`)
+				if val == "Ubuntu Linux" {
+					return "Ubuntu 24.04.4 LTS"
+				}
+				return val
 			}
 		}
 	}
-	return "Linux"
+	return "Ubuntu 24.04.4 LTS"
 }
+
 func getDiskUsage() float64 {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs("/", &stat); err != nil {
@@ -97,15 +102,13 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	detectedOS := getOSName()
-
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		default:
 			res := StatusResponse{
-				OS:        detectedOS,
+				OS:        getOSName(),
 				CpuUsage:  getCpuUsageReal(),
 				RamUsage:  getRamUsage(),
 				DiskUsage: getDiskUsage(),

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -31,9 +33,20 @@ type DirResponse struct {
 	Files      []FileInfo `json:"files"`
 }
 
+type TransferRequest struct {
+	TargetServerIP string `json:"target_server_ip"`
+	SourcePath     string `json:"source_path"`
+	DestinationDir string `json:"destination_dir"`
+}
+
 func main() {
 	http.HandleFunc("/api/status/live", handleLiveStatus)
 	http.HandleFunc("/api/files", handleFiles)
+	http.HandleFunc("/api/files/create-dir", handleCreateDir)
+	http.HandleFunc("/api/files/delete", handleDeleteFile)
+	http.HandleFunc("/api/files/content", handleFileContent)
+	http.HandleFunc("/api/files/upload", handleUploadFile)
+	http.HandleFunc("/api/files/transfer", handleServerTransfer)
 
 	fmt.Println("Home server daemon running on port 8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
@@ -143,6 +156,164 @@ func handleFiles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// 1. Create Folder
+func handleCreateDir(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	dirPath := r.URL.Query().Get("path")
+	if dirPath == "" {
+		http.Error(w, "Path required", http.StatusBadRequest)
+		return
+	}
+	err := os.MkdirAll(dirPath, 0755)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"success"}`))
+}
+
+// 2. Delete File or Folder
+func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	filePath := r.URL.Query().Get("path")
+	err := os.RemoveAll(filePath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"deleted"}`))
+}
+
+// 3. Read or Modify File Content
+func handleFileContent(w http.ResponseWriter, r *http.Request) {
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		http.Error(w, "Path required", http.StatusBadRequest)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write(content)
+	} else if r.Method == http.MethodPost {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		err = os.WriteFile(filePath, body, 0644)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"saved"}`))
+	}
+}
+
+// 4. Upload File
+func handleUploadFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	targetDir := r.URL.Query().Get("path")
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	dstPath := filepath.Join(targetDir, header.Filename)
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"uploaded"}`))
+}
+
+// 5. Server-to-Server File Transfer Engine
+func handleServerTransfer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req TransferRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Step A: Open source file locally
+	srcFile, err := os.Open(req.SourcePath)
+	if err != nil {
+		http.Error(w, "Failed to open source file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer srcFile.Close()
+
+	// Step B: Prepare a pipe or multipart form request to stream it directly to the target server IP
+	pr, pw := io.Pipe()
+	defer pw.Close()
+
+	// For simplicity in streaming via HTTP POST
+	go func() {
+		defer pw.Close()
+		// We could implement direct streaming, or use standard multipart stream
+	}();
+
+	// Let's stream it using standard http post to target server endpoint /api/files/upload?path=destination_dir
+	targetURL := fmt.Sprintf("http://%s/api/files/upload?path=%s", req.TargetServerIP, req.DestinationDir)
+	
+	// Create body reader using pipe
+	pipeReader, pipeWriter := io.Pipe()
+	writer := io.MultiWriter(pipeWriter)
+	
+	// We can use standard http client upload stream:
+	// A robust way: Read file content and stream it over HTTP request
+	reqBody, bodyWriter := io.Pipe()
+	
+	// We use multipart form writer to send the file smoothly
+	// Or even simpler: Custom POST request piping the file directly
+	_ = writer
+	_ = pipeReader
+
+	// Let's execute the direct push transfer:
+	resp, err := http.Post(targetURL, "application/octet-stream", srcFile)
+	if err != nil || resp.StatusCode != 200 {
+		http.Error(w, "Transfer failed reaching target server", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"transfer_complete"}`))
+}
+
 func formatBytes(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {
@@ -156,9 +327,7 @@ func formatBytes(bytes int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// Real metric fetchers using Linux commands
 func getCPUUsage() float64 {
-	// Parses CPU idle time using mpstat or top batch mode, fallback method using top
 	cmd := exec.Command("sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'")
 	out, err := cmd.Output()
 	if err != nil {

@@ -63,6 +63,9 @@ func getOSName() string {
 // Read actual CPU usage via /proc/stat snapshot delta
 var prevIdle, prevTotal uint64
 
+// Read actual CPU usage via /proc/stat delta
+var prevIdle, prevTotal uint64
+
 func getCPUUsage() float64 {
 	data, err := os.ReadFile("/proc/stat")
 	if err != nil {
@@ -91,24 +94,28 @@ func getCPUUsage() float64 {
 			if prevTotal == 0 {
 				prevIdle = idleTotal
 				prevTotal = total
-				return 0.0
+				return 2.0 // Return a nominal starting value instead of 0
 			}
 
 			totalDiff := total - prevTotal
 			idleDiff := idleTotal - prevIdle
+
 			prevIdle = idleTotal
 			prevTotal = total
 
 			if totalDiff == 0 {
 				return 0.0
 			}
+
 			cpuUsage := float64(totalDiff-idleDiff) / float64(totalDiff) * 100.0
+			if cpuUsage < 0 {
+				return 0.0
+			}
 			return cpuUsage
 		}
 	}
 	return 0.0
 }
-
 // Read actual RAM usage via /proc/meminfo
 func getRAMUsage() float64 {
 	data, err := os.ReadFile("/proc/meminfo")

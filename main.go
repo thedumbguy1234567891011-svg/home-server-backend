@@ -44,7 +44,7 @@ func main() {
 func getOSName() string {
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
-		return "Ubuntu 24.04.4 LTS"
+		return "Ubuntu Server"
 	}
 
 	lines := strings.Split(string(data), "\n")
@@ -56,7 +56,7 @@ func getOSName() string {
 			}
 		}
 	}
-	return "Ubuntu 24.04.4 LTS"
+	return "Ubuntu Server"
 }
 
 func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
@@ -90,16 +90,13 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// File Explorer endpoint handler with full root capability and parent routing
 func handleFiles(w http.ResponseWriter, r *http.Request) {
 	reqPath := r.URL.Query().Get("path")
 	if reqPath == "" {
-		reqPath = "/" // Default to filesystem root if empty
+		reqPath = "/"
 	}
 
-	// Clean path to prevent path traversal trickery
 	cleanPath := filepath.Clean(reqPath)
-
 	entries, err := os.ReadDir(cleanPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -108,7 +105,7 @@ func handleFiles(w http.ResponseWriter, r *http.Request) {
 
 	parentPath := filepath.Dir(cleanPath)
 	if parentPath == cleanPath {
-		parentPath = "" // Reached absolute system root boundary
+		parentPath = ""
 	}
 
 	var files []FileInfo
@@ -159,14 +156,37 @@ func formatBytes(bytes int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-func getCPUUsage() float64 { return 12.5 }
-func getRAMUsage() float64 { return 45.2 }
-func getDiskUsage() float64 {
-	cmd := exec.Command("df", "/")
+// Real metric fetchers using Linux commands
+func getCPUUsage() float64 {
+	// Parses CPU idle time using mpstat or top batch mode, fallback method using top
+	cmd := exec.Command("sh", "-c", "top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'")
 	out, err := cmd.Output()
 	if err != nil {
-		return 30.0
+		return 0.0
 	}
-	_ = out
-	return 38.4
+	var cpu float64
+	fmt.Sscanf(strings.TrimSpace(string(out)), "%f", &cpu)
+	return cpu
+}
+
+func getRAMUsage() float64 {
+	cmd := exec.Command("sh", "-c", "free | grep Mem | awk '{print ($3/$2) * 100.0}'")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0.0
+	}
+	var ram float64
+	fmt.Sscanf(strings.TrimSpace(string(out)), "%f", &ram)
+	return ram
+}
+
+func getDiskUsage() float64 {
+	cmd := exec.Command("sh", "-c", "df / | tail -1 | awk '{print $5}' | tr -d '%'")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0.0
+	}
+	var disk float64
+	fmt.Sscanf(strings.TrimSpace(string(out)), "%f", &disk)
+	return disk
 }

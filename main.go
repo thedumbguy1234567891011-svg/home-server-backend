@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -17,6 +18,23 @@ type StatusResponse struct {
 	CpuUsage  float64 `json:"cpu_usage"`
 	RamUsage  float64 `json:"ram_usage"`
 	DiskUsage float64 `json:"disk_usage"`
+}
+
+func getOSName() string {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return "Linux"
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "PRETTY_NAME=") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				return strings.Trim(parts[1], `"`)
+			}
+		}
+	}
+	return "Linux"
 }
 
 func getDiskUsage() float64 {
@@ -79,13 +97,15 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	detectedOS := getOSName()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		default:
 			res := StatusResponse{
-				OS:        "Ubuntu Linux",
+				OS:        detectedOS,
 				CpuUsage:  getCpuUsageReal(),
 				RamUsage:  getRamUsage(),
 				DiskUsage: getDiskUsage(),

@@ -3,10 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -61,11 +61,10 @@ func getOSName() string {
 
 // Helper for basic metrics simulation/retrieval
 func getSystemMetrics() (float64, float64, float64) {
-	// Basic placeholder metrics (can be expanded with psutil or host commands if needed)
 	return 12.5, 45.2, 30.1
 }
 
-// 1. Live System Status (SSE) - Restored with CPU, RAM, Disk, and OS!
+// 1. Live System Status (SSE)
 func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -76,13 +75,13 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 	for {
 		cpu, ram, disk := getSystemMetrics()
 		data := map[string]interface{}{
-			"status":    "online",
-			"os":        osName,
-			"cpu_usage": cpu,
-			"ram_usage": ram,
+			"status":     "online",
+			"os":         osName,
+			"cpu_usage":  cpu,
+			"ram_usage":  ram,
 			"disk_usage": disk,
-			"safe_mode": config.SafeMode,
-			"timestamp": time.Now().Format(time.RFC3339),
+			"safe_mode":  config.SafeMode,
+			"timestamp":  time.Now().Format(time.RFC3339),
 		}
 		jsonData, _ := json.Marshal(data)
 		fmt.Fprintf(w, "data: %s\n\n", jsonData)
@@ -213,7 +212,6 @@ func handleFileContent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Forbidden: Safe Mode is enabled.", http.StatusForbidden)
 			return
 		}
-		// Read body and write to file
 		stat, _ := io.ReadAll(r.Body)
 		err := os.WriteFile(filePath, stat, 0644)
 		if err != nil {

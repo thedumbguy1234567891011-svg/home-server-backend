@@ -26,34 +26,17 @@ func getOSName() string {
 		return "Linux"
 	}
 
-	var name string
-	var version string
-
 	lines := strings.Split(string(data), "\n")
 	for _, line := range lines {
-		if strings.HasPrefix(line, "NAME=") {
+		if strings.HasPrefix(line, "PRETTY_NAME=") {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
-				name = strings.Trim(parts[1], `"`)
-			}
-		} else if strings.HasPrefix(line, "VERSION_ID=") {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				version = strings.Trim(parts[1], `"`)
+				return strings.Trim(parts[1], `"`)
 			}
 		}
 	}
-
-	if name != "" {
-		if version != "" {
-			return fmt.Sprintf("%s %s", name, version)
-		}
-		return name
-	}
-
 	return "Linux"
 }
-
 func getDiskUsage() float64 {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs("/", &stat); err != nil {

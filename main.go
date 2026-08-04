@@ -60,8 +60,6 @@ func getOSName() string {
 	return runtime.GOOS
 }
 
-// Read actual CPU usage via /proc/stat snapshot delta
-var prevIdle, prevTotal uint64
 
 // Read actual CPU usage via /proc/stat delta
 var prevIdle, prevTotal uint64
@@ -163,10 +161,6 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 	osName := getOSName()
 
 	for {
-		// Prime the CPU tracker on first check
-		getCPUUsage()
-		time.Sleep(200 * time.Millisecond)
-		
 		cpu := getCPUUsage()
 		ram := getRAMUsage()
 		disk := getDiskUsage()
@@ -189,7 +183,6 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(2 * time.Second)
 	}
 }
-
 // 2. File Explorer Listing
 func handleFiles(w http.ResponseWriter, r *http.Request) {
 	targetPath := r.URL.Query().Get("path")

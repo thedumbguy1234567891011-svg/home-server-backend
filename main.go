@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -19,7 +20,7 @@ type ServerConfig struct {
 }
 
 var config = ServerConfig{
-	SafeMode: true, // Enabled by default to prevent accidental system damage
+	SafeMode: true,
 }
 
 func main() {
@@ -59,9 +60,91 @@ func getOSName() string {
 	return runtime.GOOS
 }
 
-// Helper for basic metrics simulation/retrieval
-func getSystemMetrics() (float64, float64, float64) {
-	return 12.5, 45.2, 30.1
+// Read actual CPU usage via /proc/stat snapshot delta
+var prevIdle, prevTotal uint64
+
+func getCPUUsage() float64 {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return 0.0
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "cpu ") {
+			fields := strings.Fields(line)
+			if len(fields) < 8 {
+				return 0.0
+			}
+			var user, nice, system, idle, iowait, irq, softirq uint64
+			fmt.Sscanf(fields[1], "%d", &user)
+			fmt.Sscanf(fields[2], "%d", &nice)
+			fmt.Sscanf(fields[3], "%d", &system)
+			fmt.Sscanf(fields[4], "%d", &idle)
+			fmt.Sscanf(fields[5], "%d", &iowait)
+			fmt.Sscanf(fields[6], "%d", &irq)
+			fmt.Sscanf(fields[7], "%d", &softirq)
+
+			idleTotal := idle + iowait
+			nonIdle := user + nice + system + irq + softirq
+			total := idleTotal + nonIdle
+
+			if prevTotal == 0 {
+				prevIdle = idleTotal
+				prevTotal = total
+				return 0.0
+			}
+
+			totalDiff := total - prevTotal
+			idleDiff := idleTotal - prevIdle
+			prevIdle = idleTotal
+			prevTotal = total
+
+			if totalDiff == 0 {
+				return 0.0
+			}
+			cpuUsage := float64(totalDiff-idleDiff) / float64(totalDiff) * 100.0
+			return cpuUsage
+		}
+	}
+	return 0.0
+}
+
+// Read actual RAM usage via /proc/meminfo
+func getRAMUsage() float64 {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0.0
+	}
+	var totalMem, availMem uint64
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "MemTotal:") {
+			fmt.Sscanf(line, "MemTotal: %d", &totalMem)
+		} else if strings.HasPrefix(line, "MemAvailable:") {
+			fmt.Sscanf(line, "MemAvailable: %d", &availMem)
+		}
+	}
+	if totalMem == 0 {
+		return 0.0
+	}
+	usedMem := totalMem - availMem
+	return (float64(usedMem) / float64(totalMem)) * 100.0
+}
+
+// Read actual Disk usage of root partition '/'
+func getDiskUsage() float64 {
+	var stat syscall.Statfs_t
+	err := syscall.Statfs("/", &stat)
+	if err != nil {
+		return 0.0
+	}
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+	if total == 0 {
+		return 0.0
+	}
+	used := total - free
+	return (float64(used) / float64(total)) * 100.0
 }
 
 // 1. Live System Status (SSE)
@@ -73,7 +156,14 @@ func handleLiveStatus(w http.ResponseWriter, r *http.Request) {
 	osName := getOSName()
 
 	for {
-		cpu, ram, disk := getSystemMetrics()
+		// Prime the CPU tracker on first check
+		getCPUUsage()
+		time.Sleep(200 * time.Millisecond)
+		
+		cpu := getCPUUsage()
+		ram := getRAMUsage()
+		disk := getDiskUsage()
+
 		data := map[string]interface{}{
 			"status":     "online",
 			"os":         osName,
